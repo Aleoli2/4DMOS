@@ -208,8 +208,6 @@ class MOS4DAgent(OdometryPipeline):
         weights: Path,
         config: Optional[Path] = None,
     ):
-        self._first = 0
-
         # Config and output dir
         self.config = load_config(config)
         self.results_dir = None
@@ -249,15 +247,12 @@ class MOS4DAgent(OdometryPipeline):
             timestamps = time.clock_gettime_ns(time.CLOCK_REALTIME)
             scan_points = self.odometry.register_points(local_scan, timestamps, scan_index)
             scan_index += 1
-            self.poses[scan_index - self._first] = self.odometry.last_pose
 
             min_range_mos = self.config.mos.min_range_mos
             max_range_mos = self.config.mos.max_range_mos
             scan_mask = self._preprocess(scan_points, min_range_mos, max_range_mos)
             scan_points = torch.tensor(scan_points[scan_mask], dtype=torch.float32, device="cuda")
-            gt_labels = gt_labels[scan_mask]
 
-            self.dict_gt_labels[scan_index] = gt_labels
             self.buffer.append(
                 torch.hstack(
                     [
@@ -269,9 +264,7 @@ class MOS4DAgent(OdometryPipeline):
             )
 
             past_point_clouds = torch.vstack(list(self.buffer))
-            start_time = time.perf_counter_ns()
             pred_logits = self.model.predict(past_point_clouds)
-            self.times_mos[scan_index - self._first] = time.perf_counter_ns() - start_time
 
             # Detach, move to CPU
             pred_logits = pred_logits.detach().cpu().numpy().astype(np.float64)
@@ -293,6 +286,7 @@ class MOS4DAgent(OdometryPipeline):
             pred_labels = self.model.to_label(pred_logits)
 
             mask_scan = past_point_clouds[:, -1] == scan_index
+            dynamic_prediction = np.where(pred_labels[mask_scan] == 1)[0]
             self.sock.send_pyobj(share_cuda_tensor(dynamic_prediction))
 
 if __name__ == "__main__":

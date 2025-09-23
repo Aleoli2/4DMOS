@@ -24,21 +24,17 @@ import os
 import time
 from collections import deque
 from pathlib import Path
-from typing import Optional,TypedDict, cast
+from typing import Optional, cast
+from typing_extensions import TypedDict
 
 import numpy as np
 import torch
 import zmq
 from kiss_icp.pipeline import OdometryPipeline
-from tqdm.auto import trange
 
 from mos4d.config import load_config
-from mos4d.metrics import get_confusion_matrix
 from mos4d.mos4d import MOS4DNet
 from mos4d.odometry import Odometry
-from mos4d.utils.pipeline_results import MOSPipelineResults
-from mos4d.utils.save import KITTIWriter, StubWriter
-from mos4d.utils.visualizer import MOS4DVisualizer, StubVisualizer
 
 from dataclasses import asdict, dataclass
 
@@ -64,8 +60,8 @@ class SerializedCudaRebuildMetadata(TypedDict):
     """TypedDict representing a serializable version of CUDA tensor rebuild metadata."""
 
     dtype: str
-    tensor_size: tuple[int, ...]
-    tensor_stride: tuple[int, ...]
+    tensor_size: tuple
+    tensor_stride: tuple
     tensor_offset: int
     storage_device: int
     storage_handle: str
@@ -84,7 +80,7 @@ class CudaRebuildMetadata:
 
     dtype: torch.dtype
     tensor_size: torch.Size
-    tensor_stride: tuple[int, ...]
+    tensor_stride: tuple
     tensor_offset: int
     storage_device: int
     storage_handle: bytes
@@ -240,11 +236,11 @@ class MOS4DAgent(OdometryPipeline):
 
     def run(self):
         scan_index = 0
+        print("MOS4D Server is running...")
         while True:
-            cuda_rebuild_metadata = cast(CudaRebuildMetadata, self.sock.recv_pyobj())
-            local_scan = rebuild_cuda_tensor(cuda_rebuild_metadata)
-
-            timestamps = time.clock_gettime_ns(time.CLOCK_REALTIME)
+            local_scan = self.sock.recv_pyobj()
+            timestamps = -1 * np.ones(local_scan.shape[0])
+            local_scan, timestamps = local_scan.reshape(-1, 3), timestamps.reshape(-1)
             scan_points = self.odometry.register_points(local_scan, timestamps, scan_index)
             scan_index += 1
 
@@ -287,7 +283,7 @@ class MOS4DAgent(OdometryPipeline):
 
             mask_scan = past_point_clouds[:, -1] == scan_index
             dynamic_prediction = np.where(pred_labels[mask_scan] == 1)[0]
-            self.sock.send_pyobj(share_cuda_tensor(dynamic_prediction))
+            self.sock.send_pyobj(dynamic_prediction)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MOS4D Server")

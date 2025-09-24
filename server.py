@@ -20,9 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
 import time
-from collections import deque
+from collections import dequeSS
 from pathlib import Path
 from typing import Optional
 
@@ -37,7 +36,6 @@ from mos4d.odometry import Odometry
 
 
 import torch
-from torch.multiprocessing.reductions import rebuild_cuda_tensor as _rebuild_tensor
 import argparse
 import time
 
@@ -76,13 +74,6 @@ class MOS4DAgent(OdometryPipeline):
         self.sock = self.ctx.socket(zmq.REP)
         self.sock.bind("tcp://*:5555")
 
-
-    def _preprocess(self, points, min_range, max_range):
-        ranges = np.linalg.norm(points - self.odometry.current_location(), axis=1)
-        mask = ranges <= max_range if max_range > 0 else np.ones_like(ranges, dtype=bool)
-        mask = np.logical_and(mask, ranges >= min_range)
-        return mask
-
     def run(self):
         scan_index = 0
         print("MOS4D Server is running...")
@@ -93,10 +84,7 @@ class MOS4DAgent(OdometryPipeline):
             scan_points = self.odometry.register_points(local_scan, timestamps, scan_index)
             scan_index += 1
 
-            min_range_mos = self.config.mos.min_range_mos
-            max_range_mos = self.config.mos.max_range_mos
-            scan_mask = self._preprocess(scan_points, min_range_mos, max_range_mos)
-            scan_points = torch.tensor(scan_points[scan_mask], dtype=torch.float32, device="cuda")
+            scan_points = torch.tensor(scan_points, dtype=torch.float32, device="cuda")
 
             self.buffer.append(
                 torch.hstack(
@@ -132,6 +120,7 @@ class MOS4DAgent(OdometryPipeline):
 
             mask_scan = past_point_clouds[:, -1] == scan_index
             dynamic_prediction = np.where(pred_labels[mask_scan] == 1)[0]
+
             self.sock.send_pyobj(dynamic_prediction)
 
 if __name__ == "__main__":

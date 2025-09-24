@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 import time
-from collections import dequeSS
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
